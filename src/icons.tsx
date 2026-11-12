@@ -49,7 +49,6 @@ export const IVol = S(<><path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5Z" fill="curren
 export const IVolMute = S(<><path d="M4 9.5v5h3.2L12 18.8V5.2L7.2 9.5Z" fill="currentColor" stroke="none" /><path d="m15.5 9.5 5 5" /><path d="m20.5 9.5-5 5" /></>);
 export const ISettings = S(<><circle cx="12" cy="12" r="3.2" /><path d="M12 2.8 13.6 5h2.7l.9 2.5 2.4 1.2-.5 2.7 1.7 2.1-1.7 2.1.5 2.7-2.4 1.2-.9 2.5h-2.7L12 21.2 10.4 19H7.7l-.9-2.5-2.4-1.2.5-2.7L3.2 10.5l1.7-2.1-.5-2.7L6.8 4.5 7.7 2h2.7Z" strokeWidth={1.6} /></>);
 export const ILogout = S(<><path d="M14 4.5H7A2.5 2.5 0 0 0 4.5 7v10A2.5 2.5 0 0 0 7 19.5h7" /><path d="m16 8 4 4-4 4" /><path d="M20 12H9.5" /></>);
-export const ILogin = S(<><path d="M10 4.5h7A2.5 2.5 0 0 1 19.5 7v10a2.5 2.5 0 0 1-2.5 2.5h-7" /><path d="m12 8 4 4-4 4" /><path d="M16 12H4.5" /></>);
 export const ITrash = S(<><path d="M4.5 6.5h15" /><path d="M8 6.5V5a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 16 5v1.5" /><path d="M6.5 6.5 7.4 19a2 2 0 0 0 2 1.8h5.2a2 2 0 0 0 2-1.8l.9-12.5" /><path d="M10 10.5v6M14 10.5v6" /></>);
 export const IDownload = S(<><path d="M12 3.5V15" /><path d="m7.5 11 4.5 4.5L16.5 11" /><path d="M4.5 19.5h15" /></>);
 export const ILink = S(<><path d="M9.5 14.5 14.5 9.5" /><path d="M11 6.5 13 4.5a4 4 0 0 1 6.5 6.5l-2 2" /><path d="M13 17.5 11 19.5A4 4 0 0 1 4.5 13l2-2" /></>);

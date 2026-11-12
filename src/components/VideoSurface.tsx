@@ -1,6 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, forwardRef, useState } from "react";
 import Hls from "hls.js";
-import { isLocalMedia, playlist } from "../api";
+import { mediaUrl } from "../api";
 
 export type VideoHandle = {
   el: () => HTMLVideoElement | null;
@@ -66,8 +66,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
     setReady(false);
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
-    const proxied = isLocalMedia(src);
-    const url = proxied ? src : playlist(src);
+    const url = mediaUrl(src);
     const useHls = !url.includes("/seg?u=");
 
     /* 换源时先把音量/倍速套回去：hls 重新 attach 后浏览器会把它们重置成默认值 */

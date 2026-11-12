@@ -10,10 +10,8 @@ import { sanitizeHtml } from "../html";
 import { setBackHandler } from "../back";
 import {
   IAspect, IBack, IBoltF, IChevronDown, IChevronUp, IClose, ICommentF, ICompress, IExpand, IFileText, IHeart, IHeartF,
-  ILink, IList, ILockF, IPauseF, IPlayF, IPlus, IReplay, IScreenClean, IShield, ISparkF, IStar, IStarF, IVol, IVolMute,
+  ILink, IList, ILockF, IPauseF, IPlayF, IPlus, IScreenClean, IShield, IStar, IStarF, IVol, IVolMute,
 } from "../icons";
-
-const PREVIEW_LIMIT = 15;
 
 type Props = {
   videoIds: number[];
@@ -33,7 +31,7 @@ const stripHtml = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, "
 
 export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind = "video", active, bottomInset, onBack, onNearEnd }: Props) {
   const store = useStore();
-  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, user, setLoginOpen, isVip, setVipModalOpen, progress, saveProgress } = store;
+  const { isLiked, isFav, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, muted, setMuted, volume, setVolume, toast, addHistory, progress, saveProgress } = store;
   const isDesktop = platform !== "android";
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -42,6 +40,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [epMap, setEpMap] = useState<Record<number, number>>({});
   const [details, setDetails] = useState<Record<number, Detail>>({});
   const [playUrls, setPlayUrls] = useState<Record<string, string>>({});
+  const [playRequest, setPlayRequest] = useState(0);
   const [cards, setCards] = useState<Record<number, VideoCard>>({});
   const [posts, setPosts] = useState<Record<number, Post>>({});
   const resumedKeysRef = useRef<Set<string>>(new Set());
@@ -56,8 +55,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [rate, setRate] = useState(1);
   const [waiting, setWaiting] = useState(false);
   const [err, setErr] = useState("");
-  const [vipLocked, setVipLocked] = useState(false);
-  const vipLockedRef = useRef(false);
   const [panel, setPanel] = useState<"episodes" | "comments" | "article" | null>(null);
   const [descOpen, setDescOpen] = useState(false);
   const [cleanScreen, setCleanScreen] = useState(false);
@@ -206,9 +203,11 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 拉播放地址 */
   useEffect(() => {
-    if (!curId) return;
+    if (!curId || kind !== "video") return;
     if (playUrls[playKey]) return;
     let alive = true;
+    setErr("");
+    setWaiting(true);
     api.play(curId, curEp)
       .then((info) => {
         if (!alive) return;
@@ -219,7 +218,20 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       .catch((e) => { if (alive) setErr((e as Error).message || "取播放地址失败"); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curId, curEp]);
+  }, [curId, curEp, kind, playRequest]);
+
+  const retryPlayback = () => {
+    setErr("");
+    setWaiting(true);
+    setPlayUrls((urls) => {
+      const next = { ...urls };
+      delete next[playKey];
+      return next;
+    });
+    preloadedKeysRef.current.delete(playKey);
+    resumedKeysRef.current.delete(playKey);
+    setPlayRequest((n) => n + 1);
+  };
 
   /* 下一集无缝预加载：当前集开播后，静默预取下一集播放地址并预热底层 m3u8 缓存 */
   useEffect(() => {
@@ -247,7 +259,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 防手机自动息屏（Screen Wake Lock API） */
   useEffect(() => {
-    const keepAwake = active && !paused && !vipLocked && hasVideo;
+    const keepAwake = active && !paused && hasVideo;
     if (!keepAwake) return undefined;
     let sentinel: { release?: () => Promise<void> } | null = null;
     let disposed = false;
@@ -273,40 +285,13 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       document.removeEventListener("visibilitychange", onVis);
       sentinel?.release?.().catch(() => {});
     };
-  }, [active, paused, vipLocked, hasVideo]);
+  }, [active, paused, hasVideo]);
 
   /* 切换条目/集数时重置播放状态 */
   useEffect(() => {
     setTime(0); setDuration(0); setBuffered(0); setErr(""); setWaiting(true); setPaused(false); setDescOpen(false);
     setVsize({ w: 0, h: 0 });
-    vipLockedRef.current = false;
-    setVipLocked(false);
   }, [playKey]);
-
-  /* 激活 VIP 后：如果当前正停在 15s 拦截处，立刻解锁并无缝继续播放 */
-  useEffect(() => {
-    if (isVip && vipLockedRef.current) {
-      vipLockedRef.current = false;
-      setVipLocked(false);
-      if (active) videoRef.current?.play();
-    } else if (!isVip && time >= PREVIEW_LIMIT && hasVideo) {
-      videoRef.current?.pause();
-      vipLockedRef.current = true;
-      setVipLocked(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVip]);
-
-  const triggerVipGate = useCallback(() => {
-    videoRef.current?.pause();
-    videoRef.current?.seek(PREVIEW_LIMIT);
-    setTime(PREVIEW_LIMIT);
-    if (!vipLockedRef.current) {
-      vipLockedRef.current = true;
-      setVipLocked(true);
-      setVipModalOpen(true);
-    }
-  }, [setVipModalOpen]);
 
   const handleDuration = useCallback((d: number) => {
     setDuration(d);
@@ -318,7 +303,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
     let target = saved.time;
     if (d > 0 && target >= d - 3) target = 0;
-    if (!isVip && target >= PREVIEW_LIMIT - 1) target = Math.max(0, PREVIEW_LIMIT - 3);
 
     if (target > 2) {
       videoRef.current?.seek(target);
@@ -331,47 +315,27 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
         "info",
       );
     }
-  }, [curId, playKey, progress, curEp, isVip, active, toast]);
+  }, [curId, playKey, progress, curEp, active, toast]);
 
   const handleTime = useCallback((t: number) => {
-    if (!isVip && t >= PREVIEW_LIMIT) {
-      triggerVipGate();
-      return;
-    }
-    if (vipLockedRef.current && t < PREVIEW_LIMIT - 0.3) {
-      vipLockedRef.current = false;
-      setVipLocked(false);
-    }
     setTime(t);
     if (curId && kind === "video") {
       saveProgress(curId, curEp, t, episodes.length || undefined);
     }
-  }, [isVip, triggerVipGate, curId, kind, saveProgress, curEp, episodes.length]);
+  }, [curId, kind, saveProgress, curEp, episodes.length]);
 
   const seekSafe = useCallback((target: number) => {
-    if (!isVip && target >= PREVIEW_LIMIT) {
-      triggerVipGate();
-      setVipModalOpen(true);
-      return false;
-    }
-    vipLockedRef.current = false;
-    setVipLocked(false);
     videoRef.current?.seek(target);
     setTime(target);
     if (curId && kind === "video") {
       saveProgress(curId, curEp, target, episodes.length || undefined, true);
     }
     return true;
-  }, [isVip, triggerVipGate, setVipModalOpen, curId, kind, saveProgress, curEp, episodes.length]);
+  }, [curId, kind, saveProgress, curEp, episodes.length]);
 
   const togglePlaySafe = useCallback(() => {
-    if (!isVip && (vipLockedRef.current || time >= PREVIEW_LIMIT - 0.15)) {
-      triggerVipGate();
-      setVipModalOpen(true);
-      return;
-    }
     videoRef.current?.toggle();
-  }, [isVip, time, triggerVipGate, setVipModalOpen]);
+  }, []);
 
   /* 音量/静音同步 */
   useEffect(() => { videoRef.current?.mute(muted); }, [muted]);
@@ -619,21 +583,17 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     } catch { toast("画中画开启失败", "info"); }
   };
 
-  const requireLogin = () => { if (!user) { setLoginOpen(true); return false; } return true; };
-
   const onLike = () => {
     if (!curId) return;
     const on = toggleLikeLocal(curId);
     setHeartBurst((n) => n + 1);
     toast(on ? "已加入喜欢" : "已取消喜欢", on ? "heart" : "info");
-    if (requireLogin()) { if (kind === "post") api.postLike(curId, on).catch(() => {}); else api.like(curId, curEp, on).catch(() => {}); }
   };
 
   const onFav = () => {
     if (!curId) return;
     const on = toggleFavLocal(curId);
     toast(on ? "已收藏" : "已取消收藏", on ? "star" : "info");
-    if (requireLogin()) { if (kind === "post") api.postCollect(curId, on).catch(() => {}); else api.collect(curId, on).catch(() => {}); }
   };
 
   const onFollow = () => {
@@ -641,7 +601,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
     if (!uid) return;
     const on = toggleFollowLocal(uid);
     toast(on ? `已关注 ${detail?.author?.name}` : "已取消关注", on ? "ok" : "info");
-    if (requireLogin()) api.follow(uid, on).catch(() => {});
   };
 
   const pickEp = (ep: number) => {
@@ -829,29 +788,6 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {!fs && (
               <div className={isDesktop ? "desktop-video-meta" : "absolute left-3.5 right-[76px] z-20 transition-opacity duration-200"}
                 style={isDesktop ? undefined : { bottom: `calc(var(--sab, 0px) + ${bottomInset + 22}px)`, opacity: cleanScreen ? 0 : 1, pointerEvents: cleanScreen ? "none" : "auto" }}>
-                {/* VIP 试看状态胶囊 / 会员标识 */}
-                {hasVideo && (
-                  <div className="mb-2">
-                    <button
-                      type="button"
-                      onClick={() => setVipModalOpen(true)}
-                      className={`inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-bold pressable backdrop-blur-md transition-all ${
-                        isVip
-                          ? "bg-black/55 border border-amber/35 text-[#ffd27d]"
-                          : "bg-black/65 border border-amber/45 text-[#ffd88a] shadow-[0_4px_16px_rgba(245,166,35,0.22)]"
-                      }`}>
-                      <ISparkF size={12} className="text-amber" />
-                      {isVip ? (
-                        <span>尊享 VIP · 已解锁全集</span>
-                      ) : vipLocked ? (
-                        <span>试看已满 15 秒 · 点此输入卡密解锁</span>
-                      ) : (
-                        <span>免费试看 {Math.max(0, Math.ceil(PREVIEW_LIMIT - time))}s · 开通 VIP 看全集</span>
-                      )}
-                    </button>
-                  </div>
-                )}
-
                 <div className="flex items-center gap-2">
                   <span className="text-[15px] font-bold text-white tsh truncate">@{meta.author}</span>
                   {episodes.length > 0 && (
@@ -888,56 +824,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                 </div>
               )}
 
-              {/* 15 秒免费试看结束拦截层 */}
-              {isActive && !isVip && vipLocked && !err && (
-                <div className="absolute inset-0 z-30 bg-black/75 backdrop-blur-md flex items-center justify-center px-6">
-                  <div className="w-full max-w-[330px] rounded-(--r-lg) glass-card p-5 text-center border border-amber/30 a-pop relative overflow-hidden">
-                    <div
-                      className="absolute inset-x-0 top-0 h-24 pointer-events-none"
-                      style={{
-                        background: "radial-gradient(80% 100% at 50% 0%, rgba(255, 196, 82, 0.25) 0%, transparent 100%)",
-                      }}
-                    />
-                    <div className="relative mx-auto w-12 h-12 rounded-2xl gold-grad flex items-center justify-center shadow-[0_8px_24px_-4px_rgba(245,166,35,0.55)]">
-                      <ILockF size={22} />
-                    </div>
-                    <div className="relative mt-3 text-[16.5px] font-extrabold text-white">15 秒免费试看已结束</div>
-                    <p className="relative mt-1 text-[12px] text-white/65 leading-relaxed">
-                      开通 VIP 会员即可解锁本剧完整时长与全部剧集，输入数字卡密立即继续观看
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setVipModalOpen(true)}
-                      className="relative mt-4 w-full h-10.5 rounded-(--r-ctl) gold-grad text-[13.5px] font-extrabold pressable flex items-center justify-center gap-1.5 shadow-[0_6px_20px_-4px_rgba(245,166,35,0.5)]">
-                      <ISparkF size={14} />
-                      输入卡密 · 立即解锁全集
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        vipLockedRef.current = false;
-                        setVipLocked(false);
-                        setTime(0);
-                        videoRef.current?.seek(0);
-                        videoRef.current?.play();
-                      }}
-                      className="relative mt-2.5 w-full h-9 rounded-(--r-ctl) bg-white/8 border border-white/10 text-[12px] font-semibold text-white/80 pressable flex items-center justify-center gap-1.5">
-                      <IReplay size={13} />
-                      重新试看前 15 秒
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* 暂停 / 缓冲 */}
-              {isActive && paused && !vipLocked && !err && (
+              {isActive && paused && !err && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                   <span className="w-[66px] h-[66px] rounded-full bg-black/40 backdrop-blur-md flex items-center justify-center">
                     <IPlayF size={28} className="text-white/90 ml-0.5" />
                   </span>
                 </div>
               )}
-              {isActive && waiting && !err && !paused && !vipLocked && (
+              {isActive && waiting && !err && !paused && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none"><div className="w-9 h-9 spinner" /></div>
               )}
               {isActive && err && (
@@ -945,7 +840,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   <div className="bg-black/70 rounded-xl p-5 flex flex-col items-center gap-3 text-[13px] text-white/90">
                     <span>视频暂时无法加载</span>
                     <span className="text-[10.5px] text-white/45 max-w-[240px] text-center break-all">{err}</span>
-                    <button className="text-primary text-[12.5px]" onClick={() => { setErr(""); setWaiting(true); videoRef.current?.play(); }}>重试</button>
+                    <button className="text-primary text-[12.5px]" onClick={retryPlayback}>重试</button>
                   </div>
                 </div>
               )}

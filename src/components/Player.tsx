@@ -4,10 +4,8 @@ import { fmtTime, isLocalMedia, mediaUrl, platform } from "../api";
 import { useStore } from "../store";
 import { setBackHandler } from "../back";
 import {
-  IBoltF, ICompress, IExpand, ILockF, IPauseF, IPlayF, IReplay, ISparkF, IVol, IVolMute,
+  IBoltF, ICompress, IExpand, IPauseF, IPlayF, IVol, IVolMute,
 } from "../icons";
-
-const PREVIEW_LIMIT = 15;
 
 type Props = {
   src: string;              // 原始 m3u8 / mp4 地址
@@ -28,8 +26,6 @@ export default function Player({
   onTogglePlay, onToggleMute, controls = true, className = "",
 }: Props) {
   const store = useStore();
-  const isVip = store.isVip;
-  const setVipModalOpen = store.setVipModalOpen;
   const toast = store.toast;
   const muted = propMuted !== undefined ? propMuted : store.muted;
 
@@ -47,10 +43,6 @@ export default function Player({
   const [rate, setRate] = useState(1);
   const [errMsg, setErrMsg] = useState<string>("");
 
-  /* —— VIP 15秒试看拦截 —— */
-  const [vipLocked, setVipLocked] = useState(false);
-  const vipLockedRef = useRef(false);
-
   /* —— 控制栏显隐（手机端触屏唤醒 + 自动渐隐，暂停时常驻） —— */
   const [showCtrl, setShowCtrl] = useState(true);
   const hideTimer = useRef<number | undefined>(undefined);
@@ -59,21 +51,21 @@ export default function Player({
     setShowCtrl(true);
     window.clearTimeout(hideTimer.current);
     hideTimer.current = window.setTimeout(() => {
-      if (videoRef.current && !videoRef.current.paused && !vipLockedRef.current) {
+      if (videoRef.current && !videoRef.current.paused) {
         setShowCtrl(false);
       }
     }, 3600);
   }, []);
 
   useEffect(() => {
-    if (!playing || vipLocked) {
+    if (!playing) {
       setShowCtrl(true);
       window.clearTimeout(hideTimer.current);
     } else {
       wakeCtrl();
     }
     return () => window.clearTimeout(hideTimer.current);
-  }, [playing, vipLocked, wakeCtrl]);
+  }, [playing, wakeCtrl]);
 
   /* —— 手势状态：长按 2.0x 倍速（上滑锁定） + 左右滑动快进快退 —— */
   const [holdSpeed, setHoldSpeed] = useState(false);
@@ -110,7 +102,7 @@ export default function Player({
 
   /* 防息屏（Screen Wake Lock） */
   useEffect(() => {
-    if (!playing || vipLocked) return undefined;
+    if (!playing) return undefined;
     let sentinel: { release?: () => Promise<void> } | null = null;
     let disposed = false;
     const req = async () => {
@@ -129,69 +121,30 @@ export default function Player({
       document.removeEventListener("visibilitychange", onVis);
       sentinel?.release?.().catch(() => {});
     };
-  }, [playing, vipLocked]);
+  }, [playing]);
 
-  /* 触发 VIP 15s 试看拦截 */
-  const triggerVipGate = useCallback(() => {
-    const v = videoRef.current;
-    if (v) {
-      v.pause();
-      v.currentTime = PREVIEW_LIMIT;
-    }
-    setTime(PREVIEW_LIMIT);
-    setPlaying(false);
-    if (!vipLockedRef.current) {
-      vipLockedRef.current = true;
-      setVipLocked(true);
-      setVipModalOpen(true);
-    }
-  }, [setVipModalOpen]);
-
-  /* 激活 VIP 后自动解锁并继续播放 */
-  useEffect(() => {
-    if (isVip && vipLockedRef.current) {
-      vipLockedRef.current = false;
-      setVipLocked(false);
-      videoRef.current?.play().catch(() => {});
-    } else if (!isVip && time >= PREVIEW_LIMIT) {
-      triggerVipGate();
-    }
-  }, [isVip, time, triggerVipGate]);
-
-  /* 安全定位（带 VIP 15s 边界拦截） */
+  /* 定位播放进度 */
   const seekSafe = useCallback((target: number) => {
     const v = videoRef.current;
     if (!v) return false;
     const clamped = Math.max(0, duration > 0 ? Math.min(duration, target) : target);
-    if (!isVip && clamped >= PREVIEW_LIMIT) {
-      triggerVipGate();
-      setVipModalOpen(true);
-      return false;
-    }
-    vipLockedRef.current = false;
-    setVipLocked(false);
     v.currentTime = clamped;
     setTime(clamped);
     wakeCtrl();
     return true;
-  }, [duration, isVip, triggerVipGate, setVipModalOpen, wakeCtrl]);
+  }, [duration, wakeCtrl]);
 
   /* 安全播放/暂停切换 */
   const togglePlaySafe = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (!isVip && (vipLockedRef.current || v.currentTime >= PREVIEW_LIMIT - 0.15)) {
-      triggerVipGate();
-      setVipModalOpen(true);
-      return;
-    }
     if (v.paused) {
       v.play().catch(() => {});
     } else {
       v.pause();
     }
     wakeCtrl();
-  }, [isVip, triggerVipGate, setVipModalOpen, wakeCtrl]);
+  }, [wakeCtrl]);
 
   /* 加载视频流 */
   useEffect(() => {
@@ -201,8 +154,6 @@ export default function Player({
     setErrMsg("");
     setTime(0);
     setDuration(0);
-    vipLockedRef.current = false;
-    setVipLocked(false);
 
     const url = isLocalMedia(src) ? src : mediaUrl(src);
     const useHls = !url.includes("/seg?u=");
@@ -306,7 +257,6 @@ export default function Player({
 
   /* —— 画面手势：长按 2.0x 倍速 / 左右滑动快进快退 / 单击唤醒控制栏与暂停 —— */
   const onSurfaceDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (vipLocked) return;
     const el = e.currentTarget;
     const width = el.clientWidth || 1;
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -470,9 +420,7 @@ export default function Player({
       } select-none ${rotated ? "fs-landscape" : ""}`}>
       {/* 手势触控层 + 视频画面 */}
       <div
-        className={`relative w-full h-full transition-all duration-300 ${
-          vipLocked ? "blur-md scale-105 brightness-50" : ""
-        }`}
+        className="relative w-full h-full"
         style={{ touchAction: "pan-y" }}
         onPointerDown={onSurfaceDown}
         onPointerMove={onSurfaceMove}
@@ -490,14 +438,6 @@ export default function Player({
           onPlaying={() => { setWaiting(false); onPlaying?.(); }}
           onTimeUpdate={(e) => {
             const t = (e.target as HTMLVideoElement).currentTime;
-            if (!isVip && t >= PREVIEW_LIMIT) {
-              triggerVipGate();
-              return;
-            }
-            if (vipLockedRef.current && t < PREVIEW_LIMIT - 0.3) {
-              vipLockedRef.current = false;
-              setVipLocked(false);
-            }
             setTime(t);
           }}
           onLoadedMetadata={(e) => {
@@ -509,17 +449,9 @@ export default function Player({
         />
       </div>
 
-      {/* 顶部状态角标：非 VIP 试看倒计时 / 倍速胶囊 / 全屏返回 */}
+      {/* 顶部状态角标：倍速胶囊 / 全屏返回 */}
       <div className="absolute inset-x-0 top-0 z-30 p-2.5 flex items-center justify-between pointer-events-none">
-        {!isVip && !vipLocked && time > 0 ? (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setVipModalOpen(true); }}
-            className="pointer-events-auto flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-black/60 backdrop-blur-md border border-[#f7c355]/40 text-[10.5px] font-semibold text-[#ffe08a] pressable">
-            <ISparkF size={11} className="text-[#f7c355]" />
-            <span>试看剩余 {Math.max(0, Math.ceil(PREVIEW_LIMIT - time))}s · 解锁VIP</span>
-          </button>
-        ) : <span />}
+        <span />
 
         {(holdSpeed || speedLock) && (
           <button
@@ -561,14 +493,14 @@ export default function Player({
       )}
 
       {/* 缓冲转圈 */}
-      {waiting && !vipLocked && (
+      {waiting && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
           <div className="w-9 h-9 spinner" />
         </div>
       )}
 
       {/* 滑动快进/快退中央时间预览 HUD */}
-      {(scrub || barPct != null) && duration > 0 && !vipLocked && (
+      {(scrub || barPct != null) && duration > 0 && (
         <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
           <div className="px-4 py-2 rounded-2xl bg-black/75 backdrop-blur-md border border-white/12 text-center elev-2">
             <div className="text-[17px] font-extrabold tabular-nums text-white">
@@ -582,7 +514,7 @@ export default function Player({
       )}
 
       {/* 暂停态中央大播放按钮 */}
-      {!playing && !waiting && !vipLocked && !scrub && (
+      {!playing && !waiting && !scrub && (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); togglePlaySafe(); }}
@@ -594,49 +526,8 @@ export default function Player({
         </button>
       )}
 
-      {/* 15 秒试看结束 —— VIP 毛玻璃拦截层 */}
-      {vipLocked && !isVip && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute inset-0 z-40 flex flex-col items-center justify-center px-5 text-center bg-black/55 backdrop-blur-md a-fade">
-          <div className="w-11 h-11 rounded-2xl gold-grad flex items-center justify-center text-[#1a1103] shadow-[0_8px_24px_rgba(247,195,85,0.35)] mb-2.5">
-            <ILockF size={20} />
-          </div>
-          <div className="text-[15px] font-extrabold text-white tracking-tight">
-            免费试看 {PREVIEW_LIMIT} 秒已结束
-          </div>
-          <p className="text-[11.5px] text-white/75 mt-1 max-w-[240px] leading-relaxed">
-            激活 VIP 会员卡密，立即解锁「黄果吃瓜」完整爆料视频与全站短剧
-          </p>
-          <div className="flex items-center gap-2.5 mt-3.5">
-            <button
-              type="button"
-              onClick={() => setVipModalOpen(true)}
-              className="h-9 px-4 rounded-full gold-grad text-[#1a1103] text-[12px] font-extrabold flex items-center gap-1.5 pressable shadow-[0_6px_20px_rgba(247,195,85,0.35)]">
-              <ISparkF size={13} />
-              <span>输入卡密解锁 VIP</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                vipLockedRef.current = false;
-                setVipLocked(false);
-                if (videoRef.current) {
-                  videoRef.current.currentTime = 0;
-                  videoRef.current.play().catch(() => {});
-                }
-                setTime(0);
-              }}
-              className="h-9 px-3.5 rounded-full bg-white/10 border border-white/15 text-[11.5px] font-semibold text-white/90 flex items-center gap-1 pressable">
-              <IReplay size={13} />
-              <span>重看前15秒</span>
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* 底部控制栏 + 常驻可拖拽进度条（不再使用电脑端 group-hover，手机端随时可见可拖） */}
-      {controls && !vipLocked && (
+      {controls && (
         <div
           onClick={(e) => e.stopPropagation()}
           className={`absolute inset-x-0 bottom-0 z-30 px-3 pb-2 pt-7 bg-gradient-to-t from-black/90 via-black/45 to-transparent transition-opacity duration-250 ${
@@ -652,13 +543,6 @@ export default function Player({
             style={{ touchAction: "none" }}
             className="relative py-2.5 cursor-pointer flex items-center">
             <div className="relative w-full h-[4px] rounded-full bg-white/25 overflow-visible">
-              {/* 15s 试看节点标记（非 VIP 时提示） */}
-              {!isVip && duration > PREVIEW_LIMIT && (
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 w-1 h-2.5 rounded-full bg-[#f7c355]/90 z-10"
-                  style={{ left: `${Math.min(100, (PREVIEW_LIMIT / duration) * 100)}%` }}
-                />
-              )}
               <div
                 className="h-full rounded-full bg-gradient-to-r from-[#ff5e3a] to-[#f7c355]"
                 style={{ width: `${Math.max(0, Math.min(100, activePct))}%` }}

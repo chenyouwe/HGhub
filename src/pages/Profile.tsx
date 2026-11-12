@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { api, APP_VERSION, fmt, logLine, platform } from "../api";
+import { api, APP_VERSION, logLine, platform } from "../api";
 import type { Detail } from "../types";
-import { formatVipExpire, useStore } from "../store";
-import { Avatar, Empty, Img, Modal, Toggle } from "../components/ui";
+import { useStore } from "../store";
+import { Empty, Img, Modal, Toggle } from "../components/ui";
 import {
-  IBoltF, IBroom, IChevR, IClock, IHeart, IInfo, ILink, ILogout, IMoon,
-  IShield, ISparkF, IStar, ISun, IUser, Logo,
+  IBroom, IChevR, IClock, IHeart, IInfo, ILink, IMoon,
+  IShield, IStar, ISun, Logo,
 } from "../icons";
 
 export default function Profile({ wide: _wide, bottomInset = 78 }: { wide: boolean; bottomInset?: number }) {
   const {
-    user, setLoginOpen, logout, theme, setTheme,
+    theme, setTheme,
     history, favs, clearHistory, clearLocal, push, toast,
-    vipExpireAt, deviceId, setVipModalOpen, progress,
+    progress,
     disguiseEnabled, disguisePin, disguiseIconSync,
     setDisguiseEnabled, setDisguisePin, setDisguiseIconSync, lockDisguiseNow,
   } = useStore();
@@ -28,8 +28,6 @@ export default function Profile({ wide: _wide, bottomInset = 78 }: { wide: boole
   const [histLoading, setHistLoading] = useState(false);
   const [pinEditing, setPinEditing] = useState(false);
   const [pinDraft, setPinDraft] = useState(disguisePin);
-
-  const vipInfo = formatVipExpire(vipExpireAt);
 
   useEffect(() => {
     let alive = true;
@@ -85,57 +83,6 @@ export default function Profile({ wide: _wide, bottomInset = 78 }: { wide: boole
       <div
         className="flex-1 scroll-y px-4 pt-1"
         style={{ paddingBottom: `calc(var(--sab, 0px) + ${Math.max(90, bottomInset + 32)}px)` }}>
-        {/* 黑金 VIP 会员卡片 */}
-        <div
-          className="rounded-(--r-lg) p-4 a-rise relative overflow-hidden border"
-          style={{
-            background: vipInfo.isVip
-              ? "linear-gradient(135deg, rgba(255, 204, 92, 0.20) 0%, rgba(28, 22, 16, 0.94) 55%, rgba(14, 15, 22, 0.98) 100%)"
-              : "linear-gradient(135deg, rgba(255, 82, 56, 0.14) 0%, rgba(18, 20, 28, 0.94) 60%, rgba(13, 15, 21, 0.98) 100%)",
-            borderColor: vipInfo.isVip ? "rgba(255, 202, 98, 0.38)" : "rgba(255, 255, 255, 0.10)",
-            boxShadow: vipInfo.isVip
-              ? "0 16px 40px -12px rgba(245, 166, 35, 0.28), inset 0 1px 0 rgba(255, 232, 178, 0.22)"
-              : "0 14px 34px -10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
-          }}>
-          <div className="flex items-center gap-3">
-            <span className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${vipInfo.isVip ? "gold-grad shadow-[0_6px_18px_rgba(245,166,35,0.35)]" : "bg-white/8 text-amber border border-white/10"}`}>
-              <ISparkF size={20} />
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[16px] font-black text-white tracking-tight truncate">
-                  {vipInfo.isVip ? "尊享 VIP 会员" : "未开通 VIP"}
-                </span>
-                <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold shrink-0 ${vipInfo.isVip ? "gold-grad" : "bg-white/10 text-white/70"}`}>
-                  {vipInfo.isVip ? "全集畅看" : "试看15秒"}
-                </span>
-              </div>
-              <div className="text-[11px] text-white/60 mt-0.5 truncate">
-                {vipInfo.isVip ? `到期时间 · ${vipInfo.expireDateText}` : "开通后解锁全站短剧与吃瓜视频 · 免去限制"}
-              </div>
-            </div>
-          </div>
-
-          {/* 设备码与卡密操作区 */}
-          <div className="mt-3 pt-3 border-t border-white/8 flex items-center justify-between gap-2">
-            <button
-              onClick={() => {
-                navigator.clipboard?.writeText(deviceId).then(() => toast("设备码已复制", "ok")).catch(() => {});
-              }}
-              className="px-2.5 h-6.5 rounded-full bg-black/40 border border-white/10 text-[10.5px] text-white/75 flex items-center gap-1.5 pressable">
-              <span className="text-white/40">设备号:</span>
-              <span className="font-mono text-white/90">{deviceId}</span>
-              <span className="text-[#ffd27d] ml-0.5 text-[10px]">复制</span>
-            </button>
-            <button
-              onClick={() => setVipModalOpen(true)}
-              className="h-7 px-3.5 rounded-full gold-grad text-[11.5px] font-extrabold pressable flex items-center gap-1 shadow-[0_4px_14px_rgba(245,166,35,0.3)]">
-              <IBoltF size={12} />
-              <span>{vipInfo.isVip ? "卡密续期" : "激活卡密"}</span>
-            </button>
-          </div>
-        </div>
-
         {/* 🛡️ 隐私计算器伪装锁 */}
         <div className="mt-3 rounded-(--r-lg) glass-card p-3.5 border border-white/8 a-rise">
           <div className="flex items-center justify-between gap-2">
@@ -225,27 +172,6 @@ export default function Profile({ wide: _wide, bottomInset = 78 }: { wide: boole
             </div>
           )}
         </div>
-
-        {/* 已登录账号资料卡（仅在用户主动登录时展示） */}
-        {user && (
-          <div className="mt-3 rounded-(--r-lg) glass-card p-3.5 flex items-center gap-3 relative overflow-hidden">
-            <Avatar size={42} name={user.nickname} hue={16} ring />
-            <div className="relative flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-[14px] font-bold text-on truncate">{user.nickname}</span>
-                <span className="text-[10.5px] text-mut">@{user.username}</span>
-              </div>
-              <div className="flex gap-3 mt-1 text-[10.5px] text-mut">
-                <span>获赞 <b className="text-on font-bold">{fmt(user.counts?.like)}</b></span>
-                <span>收藏 <b className="text-on font-bold">{fmt(user.counts?.collect)}</b></span>
-              </div>
-            </div>
-            <button onClick={async () => { await logout(); }}
-              className="relative w-8 h-8 rounded-full bg-white/8 border border-white/8 flex items-center justify-center text-mut pressable" aria-label="退出登录">
-              <ILogout size={15} />
-            </button>
-          </div>
-        )}
 
         {/* 收藏 / 历史 切换栏（水银流动指示胶囊） */}
         <div className="relative flex bg-black/30 border border-white/8 rounded-(--r-ctl) p-1 mt-3.5">
@@ -369,16 +295,6 @@ export default function Profile({ wide: _wide, bottomInset = 78 }: { wide: boole
               <div className="text-[10px] text-mut">{favs.length} 部收藏 · {history.length} 条观看记录</div>
             </div>
           </div>
-          {!user && (
-            <button onClick={() => setLoginOpen(true)} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable">
-              <span className="w-8 h-8 rounded-full tonal flex items-center justify-center"><IUser size={15} /></span>
-              <div className="flex-1">
-                <div className="text-[13px] font-medium text-on">账号云同步（可选）</div>
-                <div className="text-[10px] text-mut">登录后可跨设备同步追剧足迹</div>
-              </div>
-              <IChevR size={15} className="text-mut" />
-            </button>
-          )}
         </div>
 
         {/* 关于 / 缓存 / 诊断 */}
@@ -439,10 +355,6 @@ export default function Profile({ wide: _wide, bottomInset = 78 }: { wide: boole
               <div className="flex justify-between items-center">
                 <span>当前版本</span>
                 <span className="text-on/85 font-mono">v{APP_VERSION} (官方正版)</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span>设备标识</span>
-                <span className="text-on/85 font-mono">{deviceId}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span>图形引擎</span>

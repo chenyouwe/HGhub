@@ -5,6 +5,9 @@
 **黄果短剧第三方客户端 · Rust + Tauri 2**
 
 Windows / macOS / Android 三端 · Fluent 设计 · 沉浸式竖屏播放
+
+本版本打开即可浏览和播放，无需账号、会员或卡密，不设本地试看时长限制。
+点赞、收藏、关注和观看进度仅保存在本机；评论支持查看。
 ![alt text](docs/image.png)
 
 </div>
@@ -28,7 +31,7 @@ Windows / macOS / Android 三端 · Fluent 设计 · 沉浸式竖屏播放
 .
 ├─ src/                      前端
 │  ├─ api.ts                 接口封装 + 本地媒体协议 URL
-│  ├─ store.tsx              全局状态（导航栈 / 用户 / 本地收藏 / 主题）
+│  ├─ store.tsx              全局状态（导航栈 / 本地收藏 / 主题）
 │  ├─ html.ts                吃瓜正文清洗与图片代理
 │  ├─ components/            Feed（播放页）/ VideoSurface / PlayerControls / Panels / UI
 │  └─ pages/                 Home / Search / Category / Profile / Posts
@@ -36,8 +39,7 @@ Windows / macOS / Android 三端 · Fluent 设计 · 沉浸式竖屏播放
 │  └─ src/
 │     ├─ net.rs              请求层（边缘信封 + 重试）
 │     ├─ api.rs              业务命令
-│     ├─ media.rs            封面解密 + HLS 代理 + 缓存
-│     └─ session.rs          token 持久化
+│     └─ media.rs            封面解密 + HLS 代理 + 缓存
 └─ docs/API.md               接口文档
 ```
 
@@ -68,7 +70,7 @@ pnpm android:build    # 产出 APK
 
 ## 实现要点
 
-1. **统一边缘信封**：站点把 `/api/**` 收敛为 `POST /api/edge/request`（`method/path/body(base64)/content_type` + `Authorization: Bearer`），本项目只对接这一个入口，无需处理 Cookie。
+1. **统一边缘信封**：站点把 `/api/**` 收敛为 `POST /api/edge/request`（`method/path/body(base64)/content_type`），本项目只对接这一个入口，无需处理 Cookie。
 2. **封面解密**：封面为 AES-128-CBC 密文，Rust 侧解密后经自定义协议输出，前端 `<img>` 直接使用。
 3. **HLS 代理**：m3u8 与分片经自定义协议转发并改写 `#EXT-X-KEY` / 分片地址，绕开 WebView 的 CORS 与防盗链。
 4. **自定义协议**：Windows / Android 为 `http://hg.localhost/*`，macOS 为 `hg://localhost/*`（Tauri 的平台差异）。

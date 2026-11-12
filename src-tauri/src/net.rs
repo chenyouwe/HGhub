@@ -39,9 +39,10 @@ fn proxy_override() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+fn build_client(redirect: reqwest::redirect::Policy) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
         .user_agent(UA)
+        .redirect(redirect)
         .timeout(Duration::from_secs(20))
         .connect_timeout(Duration::from_secs(10))
         .gzip(true)
@@ -54,7 +55,14 @@ pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         }
     }
     builder.build().expect("build http client")
-});
+}
+
+pub static CLIENT: Lazy<reqwest::Client> =
+    Lazy::new(|| build_client(reqwest::redirect::Policy::limited(10)));
+
+// CDN 凭证只允许发给当前媒体来源；重定向由下面的请求函数逐跳检查。
+static MEDIA_CLIENT: Lazy<reqwest::Client> =
+    Lazy::new(|| build_client(reqwest::redirect::Policy::none()));
 
 /// reqwest 的 `Display` 只有「error sending request for url (...)」，
 /// 真正的原因（dns error / connection refused / invalid peer certificate）
@@ -147,7 +155,6 @@ pub async fn edge(
     method: &str,
     path: &str,
     body: Option<Value>,
-    token: Option<&str>,
 ) -> Result<Value, String> {
     let (encoded, ctype) = match &body {
         Some(v) => (
@@ -164,23 +171,16 @@ pub async fn edge(
     });
 
     let url = format!("{BASE}/api/edge/request");
-    let token = token.map(|s| s.to_string());
 
     let value = with_retry(|| {
         let envelope = envelope.clone();
-        let token = token.clone();
         let url = url.clone();
         async move {
-            let mut req = CLIENT
+            let req = CLIENT
                 .post(&url)
                 .header("Accept", "application/json")
                 .header("Referer", format!("{BASE}/"))
                 .json(&envelope);
-            if let Some(t) = token.as_deref() {
-                if !t.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {t}"));
-                }
-            }
             let resp = req.send().await.map_err(|e| err_text(&e))?;
             let status = resp.status();
             let text = resp.text().await.map_err(|e| err_text(&e))?;
@@ -225,7 +225,7 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
                 .header("Referer", format!("{BASE}/"))
                 .send()
                 .await
-                .map_err(|e| err_text(&e))?;
+                .map_err(|e| err_text(&e.without_url()))?;
             if !resp.status().is_success() {
                 return Err(format!("HTTP {}", resp.status()));
             }
@@ -241,6 +241,51 @@ pub async fn fetch_bytes(url: &str) -> Result<(Option<String>, Vec<u8>), String>
     .await
 }
 
+/// 带 CDN 请求头取媒体。跨来源重定向不携带凭证，也不把带签名的地址写入错误信息。
+pub async fn fetch_bytes_with_headers(
+    url: &str,
+    headers: reqwest::header::HeaderMap,
+) -> Result<(Option<String>, Vec<u8>), String> {
+    let initial = url::Url::parse(url).map_err(|_| "播放地址格式无效".to_string())?;
+    if !matches!(initial.scheme(), "http" | "https") {
+        return Err("播放地址协议不受支持".to_string());
+    }
+    with_retry(|| {
+        let mut current = initial.clone();
+        let headers = headers.clone();
+        async move {
+            for _ in 0..=5 {
+                let resp = MEDIA_CLIENT
+                    .get(current.clone())
+                    .header("Referer", format!("{BASE}/"))
+                    .headers(headers.clone())
+                    .send()
+                    .await
+                    .map_err(|e| err_text(&e.without_url()))?;
+                if resp.status().is_redirection() {
+                    let location = resp.headers().get(reqwest::header::LOCATION)
+                        .and_then(|v| v.to_str().ok())
+                        .ok_or_else(|| "媒体重定向缺少目标地址".to_string())?;
+                    let next = current.join(location).map_err(|_| "媒体重定向地址无效".to_string())?;
+                    if next.origin() != current.origin() {
+                        return Err("媒体重定向来源已变化，请刷新播放地址".to_string());
+                    }
+                    current = next;
+                    continue;
+                }
+                if !resp.status().is_success() {
+                    return Err(format!("媒体请求失败（HTTP {}）", resp.status().as_u16()));
+                }
+                let ctype = resp.headers().get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok()).map(str::to_owned);
+                let bytes = resp.bytes().await.map_err(|e| err_text(&e.without_url()))?.to_vec();
+                return Ok((ctype, bytes));
+            }
+            Err("媒体重定向次数过多".to_string())
+        }
+    }).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +293,7 @@ mod tests {
     /// 手动跑：`cargo test --lib net::tests::diag -- --nocapture`
     /// 关掉 TUN、只留系统代理时跑一遍，能直接看出客户端有没有走代理。
     #[tokio::test]
+    #[ignore = "手动网络诊断，需要联网时单独运行"]
     async fn diag() {
         println!(
             "{}",

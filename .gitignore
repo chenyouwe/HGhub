@@ -8,6 +8,11 @@ dist-ssr/
 src-tauri/target/
 src-tauri/gen/
 *.local
+*.apk
+*.aab
+*.idsig
+.gradle/
+.cxx/
 
 # 编辑器 / 系统
 .vscode/*

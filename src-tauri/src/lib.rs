@@ -1,7 +1,7 @@
 mod api;
 mod media;
 mod net;
-mod session;
+mod playback;
 
 use api::Api;
 use tauri::Manager;
@@ -12,9 +12,8 @@ pub fn run() {
         .manage(Api::new())
         .setup(|app| {
             if let Ok(dir) = app.path().app_data_dir() {
-                let _ = std::fs::create_dir_all(&dir);
-                let state: tauri::State<Api> = app.state();
-                state.session.bind(dir);
+                // 升级到无账号版本后，移除旧版本保存的本机会话。
+                let _ = std::fs::remove_file(dir.join("session.json"));
             }
             Ok(())
         })
@@ -31,13 +30,8 @@ pub fn run() {
             });
         })
         .invoke_handler(tauri::generate_handler![
-            api::app_boot,
             api::debug_log,
             api::net_diag,
-            api::api_login,
-            api::api_register,
-            api::api_logout,
-            api::api_me,
             api::api_feed,
             api::api_category,
             api::api_rank,
@@ -45,16 +39,10 @@ pub fn run() {
             api::cache_clear,
             api::api_posts,
             api::api_post,
-            api::api_post_like,
-            api::api_post_collect,
             api::api_post_comments,
             api::api_video,
             api::api_play,
             api::api_comments,
-            api::api_comment_send,
-            api::api_like,
-            api::api_collect,
-            api::api_follow,
             api::set_launcher_icon,
         ])
         .run(tauri::generate_context!())

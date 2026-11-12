@@ -60,7 +60,7 @@ export function DesktopTitleBar({ collapsed, onToggle }: { collapsed: boolean; o
 }
 
 export function DesktopRail({ collapsed }: { collapsed: boolean }) {
-  const { tab, setTab, user, setLoginOpen, push, platform } = useStore();
+  const { tab, setTab, push, platform } = useStore();
   const items: { key: Tab; label: string; Icon: typeof IHome; Filled: typeof IHomeF }[] = [
     { key: "home", label: "首页", Icon: IHome, Filled: IHomeF },
     { key: "category", label: "分类", Icon: IGrid, Filled: IGridF },
@@ -90,11 +90,11 @@ export function DesktopRail({ collapsed }: { collapsed: boolean }) {
           </button>
         </div>
         <div className="win-sidebar-bottom">
-          <button className="win-account" onClick={() => { setTab("profile"); if (!user) setLoginOpen(true); }}>
-            <Avatar size={34} hue={220} name={user?.nickname} icon={user ? undefined : <IUser size={17} />} />
+          <button className="win-account" onClick={() => setTab("profile")}>
+            <Avatar size={34} hue={220} icon={<IUser size={17} />} />
             <span className="win-account-copy">
-              <strong>{user?.nickname || "登录黄果"}</strong>
-              <small>{user ? "你的精彩，都在这里" : "留住每一次心动"}</small>
+              <strong>我的追剧</strong>
+              <small>收藏与观看记录</small>
             </span>
           </button>
           <span className="win-sidebar-version">黄果短剧 for {platform === "macos" ? "macOS" : "Windows"} {APP_VERSION}</span>

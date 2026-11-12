@@ -9,8 +9,6 @@ import Category, { ChannelPage } from "./pages/Category";
 import Profile from "./pages/Profile";
 import Feed from "./components/Feed";
 import { PostsPage, PostDetail } from "./pages/Posts";
-import LoginModal from "./components/LoginModal";
-import VipModal from "./components/VipModal";
 import CalculatorLock from "./components/CalculatorLock";
 import { ToastHost } from "./components/ui";
 import { DesktopRail, DesktopTitleBar } from "./components/DesktopChrome";
@@ -84,7 +82,7 @@ function StackPage({ page, onBack, wide, top, bottomInset }: {
 
 /* ============ 应用主体 ============ */
 function AppBody() {
-  const { platform, tab, setTab, stack, pop, loginOpen, setLoginOpen, vipModalOpen, setVipModalOpen, fs, disguiseLocked, toast } = useStore();
+  const { platform, tab, setTab, stack, pop, fs, disguiseLocked, toast } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
   const [wide, setWide] = useState(platform !== "android");
   const [collapsed, setCollapsed] = useState(false);
@@ -106,7 +104,6 @@ function AppBody() {
         if (e.key === "Escape") t.blur();
         return;
       }
-      if (loginOpen) { if (e.key === "Escape") setLoginOpen(false); return; }
       if (e.key === "Escape") { if (stack.length) pop(); return; }
       if (e.key === "/") { e.preventDefault(); setTab("search"); return; }
       if (["1", "2", "3", "4"].includes(e.key) && !e.repeat) {
@@ -115,10 +112,10 @@ function AppBody() {
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [stack.length, pop, setTab, loginOpen, setLoginOpen, disguiseLocked]);
+  }, [stack.length, pop, setTab, disguiseLocked]);
 
   const vis = (k: Tab) => (tab === k ? "absolute inset-0" : "absolute inset-0 invisible pointer-events-none");
-  const pageActive = stack.length === 0 && !loginOpen && !disguiseLocked;
+  const pageActive = stack.length === 0 && !disguiseLocked;
   /* 悬浮毛玻璃胶囊高 54px + 底距 10px = 64px，进度条上移至 78px 处留出充足防误触安全区 */
   const bottomInset = platform === "android" ? (fs ? 0 : 78) : 14;
   /* 栈页（从搜索/分类/我的进入的播放页、图文页）不显示底栏：
@@ -163,7 +160,7 @@ function DesktopShell() {
 }
 
 function ShellInner({ collapsed, theater }: { collapsed: boolean; theater: boolean }) {
-  const { stack, pop, loginOpen, setLoginOpen, tab, setTab, platform, disguiseLocked } = useStore();
+  const { stack, pop, tab, setTab, platform, disguiseLocked } = useStore();
   const mainRef = useRef<HTMLDivElement>(null);
   const [wide, setWide] = useState(true);
 
@@ -184,7 +181,6 @@ function ShellInner({ collapsed, theater }: { collapsed: boolean; theater: boole
         if (e.key === "Escape") t.blur();
         return;
       }
-      if (loginOpen) { if (e.key === "Escape") setLoginOpen(false); return; }
       if (e.key === "Escape") { if (stack.length) pop(); return; }
       if (e.key === "/") { e.preventDefault(); setTab("search"); return; }
       if (["1", "2", "3", "4"].includes(e.key) && !e.repeat) {
@@ -193,10 +189,10 @@ function ShellInner({ collapsed, theater }: { collapsed: boolean; theater: boole
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [stack.length, pop, setTab, loginOpen, setLoginOpen, disguiseLocked]);
+  }, [stack.length, pop, setTab, disguiseLocked]);
 
   const vis = (k: Tab) => (tab === k ? "absolute inset-0" : "absolute inset-0 invisible pointer-events-none");
-  const pageActive = stack.length === 0 && !loginOpen && !disguiseLocked;
+  const pageActive = stack.length === 0 && !disguiseLocked;
 
   return (
     <div className={`absolute inset-0 flex bg-canvas plat-${platform}`}>
@@ -230,11 +226,11 @@ function MobileShell() {
 
 /* ============ 入口 ============ */
 export default function App() {
-  const { platform, loginOpen, setLoginOpen, vipModalOpen, setVipModalOpen, tab, setTab, stack, pop, fs, setFs, disguiseLocked, toast } = useStore();
+  const { platform, tab, setTab, stack, pop, fs, setFs, disguiseLocked, toast } = useStore();
   const lastBackTime = useRef(0);
 
   /* —— 安卓硬件返回键 ——
-     层级：计算器伪装层 → 全屏 → 面板/弹层 → VIP框/登录框 → 页面栈 → 回首页 → 双击防误退退出。 */
+     层级：计算器伪装层 → 全屏 → 面板/弹层 → 页面栈 → 回首页 → 双击防误退退出。 */
   const backRef = useRef<() => void>(() => {});
   backRef.current = () => {
     if (disguiseLocked) {
@@ -244,8 +240,6 @@ export default function App() {
     if (fs) { setFs(false); return; }                        // 沉浸全屏
     if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}); return; }
     if (runBack()) return;                                  // 播放器的选集/评论/图文面板
-    if (vipModalOpen) { setVipModalOpen(false); return; }
-    if (loginOpen) { setLoginOpen(false); return; }
     if (stack.length) { pop(); return; }
     if (tab !== "home") { setTab("home"); return; }
     const now = Date.now();
@@ -287,12 +281,8 @@ export default function App() {
   return (
     <>
       {platform === "android" ? <MobileShell /> : <DesktopShell />}
-      <VipModal />
-      <LoginModal />
       <CalculatorLock />
       <ToastHost />
-      {/* 登录遮罩键盘处理占位 */}
-      {loginOpen && <div className="hidden" onClick={() => setLoginOpen(false)} />}
     </>
   );
 }

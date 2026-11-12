@@ -115,21 +115,3 @@ export type Post = {
   created_at?: string;
   publish_time?: string;
 };
-
-export type User = {
-  id: number;
-  username: string;
-  nickname: string;
-  avatar: string;
-  avatar_color: string;
-  sign?: string;
-  desc?: string;
-  user_type?: string;
-  counts?: Record<string, number>;
-  interactions?: {
-    like_video_ids: number[];
-    favorite_video_ids: number[];
-    follow_user_ids: number[];
-    like_video_episodes: { video_id: number; ep: number }[];
-  };
-};

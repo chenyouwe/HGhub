@@ -1,6 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, platform as envPlatform } from "./api";
-import type { User } from "./types";
 
 export type Platform = "android" | "windows" | "macos";
 export type Theme = "dark" | "light";
@@ -48,27 +47,16 @@ type Persist = {
   muted: boolean;
   volume: number;
   searchHist: string[];
-  vipExpireAt: number; // 0=未开通, -1=永久, >0=到期毫秒时间戳
-  vipCode: string;
-  deviceId: string;
   progress: Record<number, WatchProgress>;
   disguiseEnabled: boolean;
   disguisePin: string;
   disguiseIconSync: boolean;
 };
 
-function genDeviceId(): string {
-  const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-  let s = "HG-";
-  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
-}
-
 const LS = "hghub_app_v1";
 const DEFAULTS: Persist = {
   likes: [], favs: [], history: [], follows: [],
   muted: true, volume: 0.7, searchHist: [],
-  vipExpireAt: 0, vipCode: "", deviceId: "",
   progress: {},
   disguiseEnabled: false,
   disguisePin: "8888",
@@ -79,57 +67,13 @@ function loadPersist(): Persist {
   try {
     const raw = localStorage.getItem(LS);
     const parsed = raw ? (JSON.parse(raw) as Partial<Persist>) : {};
-    const merged = { ...DEFAULTS, ...parsed };
-    if (!merged.deviceId) merged.deviceId = genDeviceId();
-    return merged;
+    // 只保留当前支持的本机设置，升级时清除已移除功能的旧数据。
+    return Object.fromEntries(
+      Object.entries(DEFAULTS).map(([key, value]) => [key, parsed[key as keyof Persist] ?? value]),
+    ) as Persist;
   } catch {
-    return { ...DEFAULTS, deviceId: genDeviceId() };
+    return { ...DEFAULTS };
   }
-}
-
-export function formatVipExpire(expireAt: number, now = Date.now()): {
-  isVip: boolean;
-  statusText: string;
-  expireDateText: string;
-  remainText: string;
-} {
-  if (expireAt === -1) {
-    return {
-      isVip: true,
-      statusText: "尊享永久 VIP",
-      expireDateText: "永久有效",
-      remainText: "不限时长 · 全集畅看",
-    };
-  }
-  if (expireAt > now) {
-    const d = new Date(expireAt);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const expireDateText = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    const diffMs = expireAt - now;
-    const days = Math.floor(diffMs / 86400_000);
-    const hours = Math.floor((diffMs % 86400_000) / 3600_000);
-    const remainText = days > 0 ? `剩余 ${days} 天 ${hours} 小时` : `剩余 ${Math.max(1, hours)} 小时`;
-    return {
-      isVip: true,
-      statusText: "尊享 VIP 会员",
-      expireDateText,
-      remainText,
-    };
-  }
-  if (expireAt > 0 && expireAt <= now) {
-    return {
-      isVip: false,
-      statusText: "VIP 已过期",
-      expireDateText: "已到期",
-      remainText: "每集免费试看 15 秒",
-    };
-  }
-  return {
-    isVip: false,
-    statusText: "免费试看模式",
-    expireDateText: "未开通",
-    remainText: "每集免费试看 15 秒",
-  };
 }
 
 function readTheme(): Theme {
@@ -150,9 +94,6 @@ type Store = {
   theme: Theme; setTheme: (t: Theme) => void;
   tab: Tab; setTab: (t: Tab) => void;
   stack: Page[]; push: (p: PageInput) => void; pop: () => void;
-  user: User | null; setUser: (u: User | null) => void;
-  loginOpen: boolean; setLoginOpen: (b: boolean) => void;
-  logout: () => Promise<void>;
   likes: number[]; favs: number[]; history: number[]; follows: number[];
   isLiked: (id: number) => boolean; isFav: (id: number) => boolean;
   toggleLikeLocal: (id: number) => boolean;
@@ -167,14 +108,6 @@ type Store = {
   volume: number; setVolume: (v: number) => void;
   searchHist: string[]; addSearch: (q: string) => void; clearSearchHist: () => void;
   toasts: Toast[]; toast: (msg: string, icon?: Toast["icon"]) => void;
-  /* VIP 会员与卡密状态 */
-  isVip: boolean;
-  vipExpireAt: number;
-  vipCode: string;
-  deviceId: string;
-  vipModalOpen: boolean;
-  setVipModalOpen: (b: boolean) => void;
-  activateVip: (rawCode: string) => { ok: boolean; msg: string };
   /* 剧集断点续播进度 */
   progress: Record<number, WatchProgress>;
   saveProgress: (id: number, ep: number, time: number, totalEp?: number, force?: boolean) => void;
@@ -200,11 +133,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(readTheme);
   const [tab, setTabRaw] = useState<Tab>("home");
   const [stack, setStack] = useState<Page[]>([]);
-  const [user, setUser] = useState<User | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [vipModalOpen, setVipModalOpen] = useState(false);
   const [disguiseLocked, setDisguiseLocked] = useState<boolean>(() => !!loadPersist().disguiseEnabled);
-  const [nowTick, setNowTick] = useState(() => Date.now());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [theater, setTheaterState] = useState(false);
   const [fs, setFsState] = useState(false);
@@ -218,12 +147,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try { localStorage.setItem(LS, JSON.stringify(p)); } catch { /* ignore */ }
   }, [p]);
-
-  useEffect(() => {
-    api.boot()
-      .then((r) => { if (r.user && (r.user as User).id) setUser(r.user as User); })
-      .catch(() => { /* 离线也能用 */ });
-  }, []);
 
   const toast = useCallback((msg: string, icon?: Toast["icon"]) => {
     const id = ++toastSeq.current;
@@ -302,23 +225,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const clearSearchHist = useCallback(() => setP((s) => ({ ...s, searchHist: [] })), []);
 
-  const logout = useCallback(async () => {
-    try { await api.logout(); } catch { /* ignore */ }
-    setUser(null);
-    toast("已退出登录", "info");
-  }, [toast]);
-
   const setTheater = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setTheaterState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
   }, []);
 
   const setFs = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
     setFsState((prev) => (typeof v === "function" ? (v as (p: boolean) => boolean)(prev) : v));
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowTick(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
   }, []);
 
   const setMuted = useCallback((v: boolean | ((prev: boolean) => boolean)) => {
@@ -329,55 +241,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setP((s) => ({ ...s, volume, muted: volume === 0 }));
   }, []);
 
-  const activateVip = useCallback((rawCode: string): { ok: boolean; msg: string } => {
-    const code = rawCode.trim();
-    if (!code) return { ok: false, msg: "请输入数字卡密" };
-
-    if (code === "0000") {
-      setP((s) => ({ ...s, vipExpireAt: 0, vipCode: "" }));
-      setNowTick(Date.now());
-      toast("已重置为免费试看模式（15秒）", "info");
-      return { ok: true, msg: "已重置为免费试看状态" };
-    }
-
-    const PLAN_MAP: Record<string, { days: number; label: string }> = {
-      "1234": { days: 1, label: "体验天卡（1天）" },
-      "1111": { days: 1, label: "体验天卡（1天）" },
-      "2234": { days: 7, label: "尊享周卡（7天）" },
-      "7777": { days: 7, label: "尊享周卡（7天）" },
-      "3234": { days: 30, label: "尊享月卡（30天）" },
-      "8888": { days: 30, label: "尊享月卡（30天）" },
-      "4234": { days: 90, label: "尊享季卡（90天）" },
-      "5234": { days: 365, label: "尊享年卡（365天）" },
-      "6666": { days: 365, label: "尊享年卡（365天）" },
-      "9234": { days: -1, label: "至尊永久卡" },
-      "9999": { days: -1, label: "至尊永久卡" },
-    };
-
-    const plan = PLAN_MAP[code];
-    if (!plan) {
-      return { ok: false, msg: "卡密无效，请输入有效数字卡密（如 1234 / 2234 / 8888）" };
-    }
-
-    const now = Date.now();
-    setP((s) => {
-      if (plan.days === -1) {
-        return { ...s, vipExpireAt: -1, vipCode: code };
-      }
-      const base = s.vipExpireAt === -1
-        ? -1
-        : s.vipExpireAt > now
-          ? s.vipExpireAt
-          : now;
-      const nextExpire = base === -1 ? -1 : base + plan.days * 86400_000;
-      return { ...s, vipExpireAt: nextExpire, vipCode: code };
-    });
-    setNowTick(now);
-    toast(`激活成功 · 已开通${plan.label}`, "ok");
-    return { ok: true, msg: `激活成功：${plan.label}` };
-  }, [toast]);
-
-  const isVip = p.vipExpireAt === -1 || p.vipExpireAt > nowTick;
   const disguisePin = p.disguisePin || "8888";
 
   const pauseAllVideos = useCallback(() => {
@@ -451,7 +314,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     platform: envPlatform,
     theme, setTheme: setThemeState,
     tab, setTab, stack, push, pop,
-    user, setUser, loginOpen, setLoginOpen, logout,
     likes: p.likes, favs: p.favs, history: p.history, follows: p.follows,
     isLiked: (id) => p.likes.includes(id),
     isFav: (id) => p.favs.includes(id),
@@ -459,13 +321,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     muted: p.muted, setMuted, volume: p.volume, setVolume, theater, setTheater, fs, setFs,
     searchHist: p.searchHist, addSearch, clearSearchHist,
     toasts, toast,
-    isVip,
-    vipExpireAt: p.vipExpireAt,
-    vipCode: p.vipCode,
-    deviceId: p.deviceId,
-    vipModalOpen,
-    setVipModalOpen,
-    activateVip,
     progress: p.progress || {},
     saveProgress,
     getProgress,
@@ -478,10 +333,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setDisguiseIconSync,
     lockDisguiseNow,
     unlockDisguise,
-  }), [theme, tab, setTab, stack, push, pop, user, loginOpen, logout,
+  }), [theme, tab, setTab, stack, push, pop,
     p, toggleLikeLocal, toggleFavLocal, toggleFollowLocal, addHistory, clearHistory, clearLocal,
     setMuted, setVolume, addSearch, clearSearchHist, toasts, toast, theater, setTheater, fs, setFs,
-    isVip, vipModalOpen, activateVip, saveProgress, getProgress,
+    saveProgress, getProgress,
     disguisePin, disguiseLocked, setDisguiseEnabled, setDisguisePin, setDisguiseIconSync, lockDisguiseNow, unlockDisguise]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

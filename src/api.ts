@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  CommentPage, Detail, Paged, PlayInfo, Post, RankItem, User, VideoCard,
+  CommentPage, Detail, Paged, PlayInfo, Post, RankItem, VideoCard,
 } from "./types";
 
 /* ── 运行环境 ───────────────────────────────────────────── */
@@ -14,8 +14,8 @@ export const isMacos = /Macintosh|Mac OS X/i.test(ua);
 export const platform: "android" | "windows" | "macos" = isAndroid ? "android" : isMacos ? "macos" : "windows";
 
 /** 自定义协议地址随平台不同（见 tauri `register_asynchronous_uri_scheme_protocol` 文档）：
- *  Windows / Android → `http://<scheme>.localhost`
- *  macOS / iOS / Linux → `<scheme>://localhost`
+ *  Windows 和 Android 使用 `http://<scheme>.localhost`。
+ *  macOS、iOS 和 Linux 使用 `<scheme>://localhost`。
  *  Rust 侧 `src-tauri/src/lib.rs` 里改写 m3u8 用的 scheme 必须与此一致。 */
 export const LOCAL = isMacos ? "hg://localhost" : "http://hg.localhost";
 
@@ -48,14 +48,6 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 /* ── 接口 ───────────────────────────────────────────────── */
 
 export const api = {
-  boot: () => call<{ user: User | null; logged_in: boolean; base: string }>("app_boot"),
-  login: (username: string, password: string) =>
-    call<{ user: User }>("api_login", { username, password }),
-  register: (username: string, password: string, email = "") =>
-    call<{ user: User }>("api_register", { username, password, email }),
-  logout: () => call<{ ok: boolean }>("api_logout"),
-  me: () => call<User>("api_me"),
-
   feed: (page = 1, size = 20) => call<Paged<VideoCard>>("api_feed", { page, size }),
   category: (cate: string, page = 1, size = 20) =>
     call<Paged<VideoCard>>("api_category", { cate, page, size }),
@@ -73,17 +65,9 @@ export const api = {
 
   comments: (id: number, ep: number, page = 1, size = 20) =>
     call<CommentPage>("api_comments", { id, ep, page, size }),
-  commentSend: (id: number, ep: number, text: string, replyId?: number) =>
-    call<unknown>("api_comment_send", { id, ep, text, replyId: replyId ?? null }),
-
   clearCache: () => invoke<void>("cache_clear"),
   netDiag: () => invoke<Record<string, unknown>>("net_diag"),
-  postLike: (id: number, on: boolean) => invoke<unknown>("api_post_like", { id, on }),
-  postCollect: (id: number, on: boolean) => invoke<unknown>("api_post_collect", { id, on }),
   postComments: (id: number, page: number, size: number) => call<CommentPage>("api_post_comments", { id, page, size }),
-  like: (id: number, ep: number, on: boolean) => call<unknown>("api_like", { id, ep, on }),
-  collect: (id: number, on: boolean) => call<unknown>("api_collect", { id, on }),
-  follow: (uid: number, on: boolean) => call<unknown>("api_follow", { uid, on }),
   setLauncherIcon: (icon: "calc" | "default") =>
     invoke<boolean>("set_launcher_icon", { icon }).catch(() => false),
 };
@@ -94,7 +78,7 @@ export async function selfTest(): Promise<string> {
   try {
     const info = await api.play(117, 3);
     steps.push(`play:${info?.video_url ? "ok" : "empty"}`);
-    const hlsUrl = `${LOCAL}/hls?u=${encodeURIComponent(info.video_url)}`;
+    const hlsUrl = mediaUrl(info.video_url);
     const r1 = await fetch(hlsUrl);
     const txt = await r1.text();
     steps.push(`hls:${r1.status}/${txt.length}/${txt.startsWith("#EXTM3U") ? "m3u8" : "bad"}`);
@@ -103,20 +87,11 @@ export async function selfTest(): Promise<string> {
       const m = keyLine.match(/URI="([^"]+)"/);
       if (m) {
         const rustUrl = m[1];
-        steps.push(`rustUrl:${rustUrl.slice(0, 60)}`);
-        // A/B：用 JS 重新编码同一条上游地址
-        const inner = decodeURIComponent(rustUrl.split("?u=")[1] || "");
-        steps.push(`inner:${inner.slice(0, 50)}`);
         try {
           const rk = await fetch(rustUrl);
           const bk = await rk.arrayBuffer();
           steps.push(`keyRust:${rk.status}/${bk.byteLength}`);
         } catch (e) { steps.push(`keyRust:throw:${(e as Error).message.slice(0, 30)}`); }
-        try {
-          const rk2 = await fetch(`${LOCAL}/seg?u=${encodeURIComponent(inner)}`);
-          const bk2 = await rk2.arrayBuffer();
-          steps.push(`keyJs:${rk2.status}/${bk2.byteLength}`);
-        } catch (e) { steps.push(`keyJs:throw:${(e as Error).message.slice(0, 30)}`); }
       }
     }
     const segLine = txt.split("\n").find((l) => l && !l.startsWith("#") && l.includes("/seg?u="));
@@ -164,5 +139,6 @@ export function directMedia(url: string): string {
 
 /** 按扩展名选择代理方式：m3u8 → 播放列表改写；其它 → 原样透传 */
 export function mediaUrl(url: string): string {
+  if (isLocalMedia(url)) return url;
   return /\.m3u8(\?|$)/i.test(url) ? playlist(url) : directMedia(url);
 }
